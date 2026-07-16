@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Feedback</title>
+  <link rel="stylesheet" href="style.css?v={{V}}" />
+</head>
+<body>
+  <main id="app">
+
+    <!-- List view -->
+    <section id="list-view">
+      <header class="hero">
+        <div class="eyebrow">FEEDBACK</div>
+        <h1 id="headline">Loading…</h1>
+        <p class="support">Tell the Luna team what works and what doesn't. They answer here.</p>
+        <button id="new-btn" class="cta">Write feedback</button>
+      </header>
+      <div id="error" class="error hidden"></div>
+      <div id="empty" class="empty hidden">
+        <p>No feedback yet.</p>
+        <p class="support">Anything confusing, broken, or expensive — say it. A person reads every ticket.</p>
+      </div>
+      <div id="list" class="list"></div>
+    </section>
+
+    <!-- New ticket view -->
+    <section id="new-view" class="hidden">
+      <header class="bar">
+        <button class="back" data-back>&larr; Back</button>
+        <div>
+          <div class="eyebrow">NEW FEEDBACK</div>
+          <h2>What should the team know?</h2>
+        </div>
+      </header>
+      <form id="new-form">
+        <div class="chips" id="category-chips">
+          <button type="button" class="chip active" data-cat="other">General</button>
+          <button type="button" class="chip" data-cat="cost">Pricing</button>
+          <button type="button" class="chip" data-cat="bug">Something broke</button>
+          <button type="button" class="chip" data-cat="feature">Idea</button>
+          <button type="button" class="chip" data-cat="praise">Praise</button>
+        </div>
+        <input id="new-title" type="text" maxlength="200" placeholder="One line — what is this about?" required />
+        <textarea id="new-body" rows="6" placeholder="Say it in your own words. The more specific, the faster the fix." required></textarea>
+        <div class="form-actions">
+          <button type="submit" class="cta" id="new-submit">Send to the Luna team</button>
+        </div>
+        <div id="new-error" class="error hidden"></div>
+      </form>
+    </section>
+
+    <!-- Detail / thread view -->
+    <section id="detail-view" class="hidden">
+      <header class="bar">
+        <button class="back" data-back>&larr; Back</button>
+        <div class="grow">
+          <div class="eyebrow" id="detail-eyebrow">TICKET</div>
+          <h2 id="detail-title"></h2>
+          <p class="support" id="detail-support"></p>
+        </div>
+        <span id="detail-status" class="pill"></span>
+      </header>
+      <div id="thread" class="thread"></div>
+      <form id="reply-form">
+        <textarea id="reply-body" rows="3" placeholder="Reply to the team…" required></textarea>
+        <div class="form-actions">
+          <button type="submit" class="cta" id="reply-submit">Send reply</button>
+        </div>
+        <div id="reply-error" class="error hidden"></div>
+      </form>
+    </section>
+
+  </main>
+  <script src="app.js?v={{V}}"></script>
+</body>
+</html>

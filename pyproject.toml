@@ -1,0 +1,15 @@
+[project]
+name = "plugin-feedback"
+version = "0.1.0"
+description = "Feedback tickets to the Luna team — agent-filed and owner-filed, threaded replies. Built on luna_sdk v0."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+dependencies = ["fastapi>=0.110", "httpx>=0.27", "sqlalchemy>=2.0"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-asyncio>=0.23"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

@@ -1,0 +1,58 @@
+name = "plugin-feedback"
+shown_name = "Feedback"
+version = "0.1.0"
+description = "Feedback tickets to the Luna team, with threaded replies."
+entry = "plugin_feedback"
+sdk_version = "0"
+license = "MIT"
+category = "global"
+tags = ["feedback", "support", "tickets"]
+readme = """
+# plugin-feedback
+
+Feedback tickets from any Luna to the Luna team.
+
+- The **agent files feedback**: direct complaints ("this is expensive") get
+  offered and drafted; indirect frustration gets filed by the agent itself,
+  with the conversation attached as reference. `feedback_ticket_send` is
+  `prompt_always` — the approval card is the owner's review box before
+  anything leaves the machine.
+- The **owner writes feedback** in a Feedback sidebar pane, sees the team's
+  answers there, and replies — a threaded conversation.
+- When the team answers, the **agent finds out** via a throttled check and a
+  one-line prompt note, loads the `feedback-tickets` skill, reads the thread
+  and relays it in plain words.
+
+All ticket state lives on the luna-service control plane (plan 046); the
+plugin is stateless and authenticates with the machine's gateway token.
+Credential-shaped strings are scrubbed from every outbound field.
+
+Source: https://github.com/huemorgan2/plugin-feedback
+"""
+
+[requires]
+tools = 4
+
+[[tools]]
+name = "feedback_ticket_send"
+description = "Send a feedback ticket to the Luna team."
+policy = "prompt_always"
+risk_level = "low"
+
+[[tools]]
+name = "feedback_ticket_list"
+description = "List this Luna's feedback tickets."
+policy = "auto_approve"
+risk_level = "low"
+
+[[tools]]
+name = "feedback_ticket_get"
+description = "Read one feedback ticket's full thread."
+policy = "auto_approve"
+risk_level = "low"
+
+[[tools]]
+name = "feedback_ticket_reply"
+description = "Reply on a feedback ticket thread."
+policy = "prompt_always"
+risk_level = "low"
