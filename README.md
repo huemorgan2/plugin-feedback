@@ -1,6 +1,7 @@
 # plugin-feedback
 
-Feedback tickets from any Luna to the Luna team, with threaded replies.
+Feedback tickets from any Luna to the Luna team, with threaded replies —
+plus the runtime's silent error-capture side channel (since 0.2.0).
 
 ## What it does
 
@@ -18,11 +19,36 @@ Feedback tickets from any Luna to the Luna team, with threaded replies.
   loads the `feedback-tickets` skill, reads the thread with `feedback_ticket_get`,
   and relays it in plain words.
 
+## Error capture (0.2.0, plan 007)
+
+A silent side channel — **no tickets**. Three feeds land in the control
+plane's `error_events` table (luna-service plan 051) and show up in the
+admin Error Tracking view:
+
+1. **Agent-side runtime errors.** A `logging.Handler` on the root logger at
+   WARNING+ (so `uvicorn.error` / unhandled ASGI tracebacks are caught).
+   `emit` only enqueues to a bounded drop-oldest queue; a background task
+   batches to `POST /api/agent/errors` with the gateway token. Records from
+   the plugin's own loggers and the HTTP stack are skipped (recursion guard).
+2. **Browser UI errors.** `ui/reporter.js` — served at
+   `/api/p/plugin-feedback/reporter.js` and injected into proxied pages by
+   luna-service — captures `window.onerror`, unhandled rejections,
+   resource-load failures, failed/5xx/slow fetches, with a 20-entry
+   breadcrumb ring, client-side dedupe, and a per-minute cap. It posts to
+   the plugin's `/errors` route with the Shell's bearer token; the plugin
+   forwards with the gateway token, so the browser never sees it.
+3. **Explicit agent reports.** The `report_issue` tool records
+   agent-noticed problems silently.
+
+Everything is best-effort and degrades to a no-op on OSS installs without a
+control plane.
+
 ## Tools
 
 | tool | policy | gating |
 |---|---|---|
 | `feedback_ticket_send` | prompt_always | always visible |
+| `report_issue` | auto_approve | always visible |
 | `feedback_ticket_list` | auto_approve | `feedback-tickets` skill |
 | `feedback_ticket_get` | auto_approve | `feedback-tickets` skill |
 | `feedback_ticket_reply` | prompt_always | `feedback-tickets` skill |

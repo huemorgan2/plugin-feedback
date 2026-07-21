@@ -34,6 +34,13 @@ class ReplyBody(BaseModel):
     body: str
 
 
+class ErrorBatchBody(BaseModel):
+    # Kept loose on purpose (list of Any, filtered in the handler): the
+    # reporter is best-effort and the server (plan 051) hardens every field
+    # again; a strict schema here would turn malformed telemetry into 422s.
+    events: list = []
+
+
 def _raise_for(exc: Exception) -> None:
     if isinstance(exc, client.NotConnected):
         raise HTTPException(503, "Not connected to the Luna service.") from exc
@@ -108,6 +115,39 @@ def register_routes(app, ctx):
             _raise_for(exc)
         await _emit_updated(ticket_id)
         return result
+
+    # --- Browser error intake (plan 007) --------------------------------
+    # The injected reporter posts batches here with the Shell's bearer token;
+    # we forward with the machine's gateway token (the browser never sees
+    # it). Always 202 for authed callers — telemetry must not error-loop.
+
+    @router.post("/errors", status_code=202)
+    async def ingest_errors(payload: ErrorBatchBody, user=Depends(get_current_user)):
+        events = []
+        for event in payload.events[:50]:
+            if not isinstance(event, dict):
+                continue
+            event["source"] = "ui"  # this route only carries browser events
+            message = event.get("message")
+            if isinstance(message, str):
+                event["message"] = scrub(message)[:500]
+            events.append(event)
+        result = await client.report_error(ctx, events)
+        return {"accepted": len(events) if result is not None else 0}
+
+    @router.get("/reporter.js", include_in_schema=False)
+    async def reporter_js():
+        # Unauthenticated by design: loaded via a plain <script> tag injected
+        # into every proxied page (no auth header on script loads). Content
+        # is static and secret-free.
+        target = _UI_DIR / "reporter.js"
+        if not target.exists():
+            raise HTTPException(404, "reporter not bundled")
+        return FileResponse(
+            str(target),
+            media_type="application/javascript",
+            headers={"Cache-Control": "no-cache"},
+        )
 
     # --- Sidebar pane UI ------------------------------------------------
     # Served unauthenticated: the Shell iframes /ui/ with no auth header;

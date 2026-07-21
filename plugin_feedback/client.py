@@ -20,7 +20,9 @@ ENV_GATEWAY_URL = "LUNA_GATEWAY_URL"
 ENV_GATEWAY_TOKEN = "LUNA_GATEWAY_TOKEN"
 
 BASE_PATH = "/api/agent/feedback"
+ERRORS_PATH = "/api/agent/errors"  # plan 051 sink — NOT under the feedback base
 TIMEOUT_S = 10.0
+ERRORS_TIMEOUT_S = 5.0
 
 
 class NotConnected(Exception):
@@ -119,3 +121,32 @@ async def reply(ctx: Any, ticket_id: str, *, author: str, body: str) -> dict[str
 
 async def updates(ctx: Any) -> dict[str, Any]:
     return await _request(ctx, "GET", "/updates")
+
+
+async def report_error(ctx: Any, events: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Post an error-event batch to the control-plane sink (plan 007/051).
+
+    Unlike the ticket calls this NEVER raises — error telemetry is
+    best-effort by contract. Returns the service's response dict, or None
+    when unconfigured (OSS), on any HTTP error, or on any transport failure.
+    """
+    if not events:
+        return None
+    cfg = get_config(ctx)
+    if cfg is None:
+        return None
+    url = f"{cfg['base']}{ERRORS_PATH}"
+    headers = {
+        "authorization": f"Bearer {cfg['token']}",
+        "content-type": "application/json",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=ERRORS_TIMEOUT_S) as c:
+            resp = await c.post(
+                url, content=json.dumps({"events": events}), headers=headers
+            )
+        if resp.status_code >= 400:
+            return None
+        return resp.json()
+    except Exception:  # noqa: BLE001 — never let telemetry touch a turn
+        return None

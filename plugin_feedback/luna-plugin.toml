@@ -1,7 +1,7 @@
 name = "plugin-feedback"
 shown_name = "Feedback"
-version = "0.1.0"
-description = "Feedback tickets to the Luna team, with threaded replies."
+version = "0.2.0"
+description = "Feedback tickets to the Luna team, with threaded replies — plus silent error capture to the control plane."
 entry = "plugin_feedback"
 sdk_version = "0"
 license = "MIT"
@@ -23,15 +23,23 @@ Feedback tickets from any Luna to the Luna team.
   one-line prompt note, loads the `feedback-tickets` skill, reads the thread
   and relays it in plain words.
 
-All ticket state lives on the luna-service control plane (plan 046); the
-plugin is stateless and authenticates with the machine's gateway token.
-Credential-shaped strings are scrubbed from every outbound field.
+Since 0.2.0 the plugin is also the runtime's **error capture** surface — a
+silent side channel, no tickets: a WARNING+ log handler catches agent-side
+exceptions, an injected browser reporter catches UI failures (JS errors,
+failed loads, failed/slow fetches), and a `report_issue` tool lets the agent
+record problems it notices. Everything lands in the control plane's
+error_events table (luna-service plan 051) and degrades to a no-op on OSS
+installs without a control plane.
+
+All state lives on the luna-service control plane; the plugin is stateless
+and authenticates with the machine's gateway token. Credential-shaped strings
+are scrubbed from every outbound field.
 
 Source: https://github.com/huemorgan2/plugin-feedback
 """
 
 [requires]
-tools = 4
+tools = 5
 
 [[tools]]
 name = "feedback_ticket_send"
@@ -55,4 +63,10 @@ risk_level = "low"
 name = "feedback_ticket_reply"
 description = "Reply on a feedback ticket thread."
 policy = "prompt_always"
+risk_level = "low"
+
+[[tools]]
+name = "report_issue"
+description = "Silently record a technical problem for the Luna team's error tracking."
+policy = "auto_approve"
 risk_level = "low"

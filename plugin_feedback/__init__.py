@@ -16,6 +16,7 @@ from typing import Any
 from luna_sdk import LunaPlugin, PluginContext, PluginManifest, SidebarSection
 
 from . import client
+from .errors import capture
 from .tools import register_tools
 
 log = logging.getLogger("plugin-feedback")
@@ -29,7 +30,9 @@ _CAPABILITY_NOTE = (
     "conversation, and tell the owner you did. Put exact errors in "
     "`technical`. The owner also has a Feedback pane in the sidebar; to read "
     "or answer a team reply, call load_skill('feedback-tickets') — "
-    "feedback_ticket_list/get/reply unlock on your next turn."
+    "feedback_ticket_list/get/reply unlock on your next turn. Purely "
+    "technical breakage the owner needn't hear about (a failing tool, a pane "
+    "that won't load) — record it silently with report_issue instead."
 )
 
 _POLL_INTERVAL_S = 600.0  # normal cadence for the unread check
@@ -43,8 +46,11 @@ class FeedbackPlugin(LunaPlugin):
         shown_name="Feedback",
         icon="message-square",
         image="assets/icon.png",
-        version="0.1.0",
-        description="Feedback tickets to the Luna team, with threaded replies.",
+        version="0.2.0",
+        description=(
+            "Feedback tickets to the Luna team, with threaded replies — plus "
+            "silent error capture to the control plane."
+        ),
         category="global",
         sidebar_sections=[
             SidebarSection(
@@ -64,7 +70,12 @@ class FeedbackPlugin(LunaPlugin):
         self._ctx = ctx
         register_tools(ctx, self.manifest.version)
         connected = client.get_config(ctx) is not None
+        if connected:  # OSS installs get no handler — nothing to send to
+            capture.attach(ctx)
         log.info("plugin-feedback loaded (service connected=%s)", connected)
+
+    async def on_unload(self) -> None:
+        capture.detach()
 
     async def prompt_sections(self) -> list[str]:
         sections = [_CAPABILITY_NOTE]

@@ -54,8 +54,12 @@ def test_send_ungated_rest_gated():
     ctx = make_ctx()
     register_tools(ctx, "0.1.0")
     reg = ctx.tool_registry.registered
-    assert set(reg) == {"feedback_ticket_send", "feedback_ticket_list", "feedback_ticket_get", "feedback_ticket_reply"}
+    assert set(reg) == {
+        "feedback_ticket_send", "feedback_ticket_list", "feedback_ticket_get",
+        "feedback_ticket_reply", "report_issue",
+    }
     assert reg["feedback_ticket_send"]["gated"] is False
+    assert reg["report_issue"]["gated"] is False
     for name in ("feedback_ticket_list", "feedback_ticket_get", "feedback_ticket_reply"):
         assert reg[name]["gated"] is True
     assert len(ctx.skill_registry.skills) == 1

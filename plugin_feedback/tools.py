@@ -122,6 +122,43 @@ def register_tools(ctx: PluginContext, plugin_version: str) -> None:
         await _emit_updated(ticket_id)
         return result
 
+    async def _report_issue(
+        description: str,
+        severity: str = "error",
+        technical: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        if severity not in ("warning", "error", "critical"):
+            severity = "error"
+        context: dict[str, Any] = {
+            "via": "report_issue",
+            **{k: v for k, v in (await build_context(ctx, plugin_version)).items()},
+        }
+        if technical:
+            context["technical"] = {
+                str(k): scrub(str(v)) for k, v in technical.items()
+            }
+        event = {
+            "source": "agent",
+            "kind": "agent_report",
+            "severity": severity,
+            "message": scrub(description.strip())[:500],
+            "context": context,
+        }
+        result = await client.report_error(ctx, [event])
+        if result is None:
+            return {
+                "recorded": False,
+                "note": "error sink not reachable (OSS install or service down) — nothing sent",
+            }
+        return {
+            "recorded": True,
+            "note": (
+                "Logged for the Luna team's error tracking. Silent — no "
+                "ticket, no reply expected. Use feedback_ticket_send instead "
+                "if the owner should hear back."
+            ),
+        }
+
     send_def = ToolDef(
         name="feedback_ticket_send",
         description=(
@@ -197,8 +234,31 @@ def register_tools(ctx: PluginContext, plugin_version: str) -> None:
         ),
     ]
 
-    # feedback_ticket_send stays ungated on every core.
+    report_issue_def = ToolDef(
+        name="report_issue",
+        description=(
+            "Silently record a technical problem for the Luna team's error "
+            "tracking — no ticket, no reply, the owner is not involved. Use "
+            "when you notice something broken (a pane that won't load, a "
+            "tool that keeps failing, repeated timeouts) that isn't worth a "
+            "feedback ticket. Put exact error messages in `technical`."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "description": {"type": "string", "description": "What is broken, in one or two sentences."},
+                "severity": {"type": "string", "enum": ["warning", "error", "critical"], "default": "error"},
+                "technical": {"type": "object", "description": "Exact error messages, tool/plugin names, repro steps."},
+            },
+            "required": ["description"],
+        },
+        policy="auto_approve",
+        risk_level="low",
+    )
+
+    # feedback_ticket_send and report_issue stay ungated on every core.
     ctx.tool_registry.register(PLUGIN_NAME, send_def, _send)
+    ctx.tool_registry.register(PLUGIN_NAME, report_issue_def, _report_issue)
 
     gate = getattr(ctx, "skill_registry", None) is not None and SkillDef is not None
     for tool_def, handler in gated_defs:

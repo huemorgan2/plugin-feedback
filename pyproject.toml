@@ -1,7 +1,7 @@
 [project]
 name = "plugin-feedback"
-version = "0.1.0"
-description = "Feedback tickets to the Luna team — agent-filed and owner-filed, threaded replies. Built on luna_sdk v0."
+version = "0.2.0"
+description = "Feedback tickets to the Luna team — agent-filed and owner-filed, threaded replies — plus silent error capture. Built on luna_sdk v0."
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.11"

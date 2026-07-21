@@ -29,6 +29,7 @@ def test_toml_tools_match_code():
     toml_names = {t["name"] for t in plugin_toml["tools"]}
     assert toml_names == {
         "feedback_ticket_send", "feedback_ticket_list", "feedback_ticket_get", "feedback_ticket_reply",
+        "report_issue",
     }
     assert plugin_toml["requires"]["tools"] == len(toml_names)
 
