@@ -20,9 +20,16 @@ def _record(name="some.app", level=logging.ERROR, msg="boom", exc_info=None):
     )
 
 
-def make_capture():
+def make_capture(configured: bool = False):
+    """configured=True gives the ctx gateway credentials so flush() reaches
+    the network layer (which tests monkeypatch); default is an OSS install."""
+    if configured:
+        env = {"LUNA_GATEWAY_URL": "https://cp.example/proxy", "LUNA_GATEWAY_TOKEN": "lsv1-test"}
+        ctx = SimpleNamespace(get_env=lambda n: env.get(n))
+    else:
+        ctx = SimpleNamespace(get_env=lambda n: None)
     cap = ErrorCapture()
-    cap._ctx = SimpleNamespace(get_env=lambda n: None)
+    cap._ctx = ctx
     return cap
 
 
@@ -100,7 +107,7 @@ async def test_flush_sends_batch_and_drains(monkeypatch):
         return {"accepted": len(events)}
 
     monkeypatch.setattr(client, "report_error", fake_report)
-    cap = make_capture()
+    cap = make_capture(configured=True)
     for i in range(errors._BATCH_MAX + 5):
         cap.enqueue_record(_record(msg=f"e{i}"))
     await cap.flush()
@@ -109,15 +116,110 @@ async def test_flush_sends_batch_and_drains(monkeypatch):
     assert len(cap._queue) == 5
 
 
-async def test_flush_never_raises(monkeypatch):
+async def test_flush_unconfigured_drains_to_nothing(monkeypatch):
+    async def fake_report(ctx, events):  # pragma: no cover — must not be reached
+        raise AssertionError("unconfigured install must never POST")
+
+    monkeypatch.setattr(client, "report_error", fake_report)
+    cap = make_capture(configured=False)
+    cap.enqueue_record(_record())
+    await cap.flush()
+    assert len(cap._queue) == 0
+
+
+async def test_flush_never_raises_and_requeues_on_failure(monkeypatch):
     async def boom(ctx, events):
         raise RuntimeError("network down")
 
     monkeypatch.setattr(client, "report_error", boom)
-    cap = make_capture()
-    cap.enqueue_record(_record())
+    cap = make_capture(configured=True)
+    cap.enqueue_record(_record(msg="first"))
+    cap.enqueue_record(_record(msg="second"))
     await cap.flush()  # must not raise
-    assert len(cap._queue) == 0  # batch dropped, not retried
+    # 0.3.0: failed batch is requeued in order, not dropped — the errors that
+    # explain a delivery outage (dead token) must survive until it heals.
+    assert [e["message"] for e in cap._queue] == ["first", "second"]
+    assert cap._last_failure > 0
+
+
+async def test_flush_requeued_batch_delivers_after_recovery(monkeypatch):
+    calls = {"n": 0}
+
+    async def flaky(ctx, events):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return None  # report_error's own failure signature
+        return {"accepted": len(events)}
+
+    monkeypatch.setattr(client, "report_error", flaky)
+    cap = make_capture(configured=True)
+    cap.enqueue_record(_record(msg="keep me"))
+    await cap.flush()
+    assert len(cap._queue) == 1
+    await cap.flush()
+    assert len(cap._queue) == 0
+    assert cap._last_failure == 0.0
+
+
+# -- fast flush on ERROR+ ------------------------------------------------
+
+async def test_error_record_triggers_fast_flush(monkeypatch):
+    import asyncio
+
+    monkeypatch.setattr(errors, "_FAST_FLUSH_DELAY_S", 0.01)
+    sent = []
+
+    async def fake_report(ctx, events):
+        sent.append(events)
+        return {"accepted": len(events)}
+
+    monkeypatch.setattr(client, "report_error", fake_report)
+    cap = make_capture(configured=True)
+    cap._loop = asyncio.get_running_loop()
+    cap.enqueue_record(_record(level=logging.ERROR, msg="crash"))
+    await asyncio.sleep(0.1)
+    assert len(sent) == 1  # flushed in ~10ms, not the 30s tick
+    assert not cap._kick_pending
+
+
+async def test_warning_record_does_not_fast_flush(monkeypatch):
+    import asyncio
+
+    monkeypatch.setattr(errors, "_FAST_FLUSH_DELAY_S", 0.01)
+    sent = []
+
+    async def fake_report(ctx, events):
+        sent.append(events)
+        return {"accepted": len(events)}
+
+    monkeypatch.setattr(client, "report_error", fake_report)
+    cap = make_capture(configured=True)
+    cap._loop = asyncio.get_running_loop()
+    cap.enqueue_record(_record(level=logging.WARNING, msg="meh"))
+    await asyncio.sleep(0.05)
+    assert sent == []  # warnings wait for the interval tick
+    assert len(cap._queue) == 1
+
+
+async def test_fast_flush_stands_down_during_failure_backoff(monkeypatch):
+    import asyncio
+    import time as _time
+
+    monkeypatch.setattr(errors, "_FAST_FLUSH_DELAY_S", 0.01)
+    sent = []
+
+    async def fake_report(ctx, events):
+        sent.append(events)
+        return {"accepted": len(events)}
+
+    monkeypatch.setattr(client, "report_error", fake_report)
+    cap = make_capture(configured=True)
+    cap._loop = asyncio.get_running_loop()
+    cap._last_failure = _time.monotonic()  # a delivery just failed
+    cap.enqueue_record(_record(level=logging.ERROR, msg="crash"))
+    await asyncio.sleep(0.05)
+    assert sent == []  # no POST storm against a dead token
+    assert len(cap._queue) == 1  # kept for the next interval tick
 
 
 async def test_flush_without_ctx_is_noop():

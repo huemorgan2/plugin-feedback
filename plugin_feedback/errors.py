@@ -32,6 +32,8 @@ _BATCH_MAX = 25  # server caps batches at 50; stay well under
 _FLUSH_INTERVAL_S = 30.0
 _SEND_TIMEOUT_S = 5.0
 _MAX_PER_MINUTE = 60  # enqueue throttle — an error storm must not melt a turn
+_FAST_FLUSH_DELAY_S = 2.0  # ERROR+ debounce — beat a machine restart, batch a burst
+_FAILURE_BACKOFF_S = 20.0  # after a failed delivery, fast-flush stands down
 
 _MAX_MESSAGE_CHARS = 500
 _MAX_STACK_CHARS = 16 * 1024
@@ -102,6 +104,9 @@ class ErrorCapture:
         self._queue: deque[dict[str, Any]] = deque(maxlen=_QUEUE_MAX)
         self._handler: ErrorCaptureHandler | None = None
         self._task: asyncio.Task | None = None
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._kick_pending = False
+        self._last_failure = 0.0
         self._minute = 0
         self._minute_count = 0
 
@@ -115,8 +120,10 @@ class ErrorCapture:
             logging.getLogger().addHandler(self._handler)
         if self._task is None or self._task.done():
             try:
-                self._task = asyncio.get_running_loop().create_task(self._run())
+                self._loop = asyncio.get_running_loop()
+                self._task = self._loop.create_task(self._run())
             except RuntimeError:  # no running loop (tests) — flush manually
+                self._loop = None
                 self._task = None
 
     def detach(self) -> None:
@@ -126,6 +133,7 @@ class ErrorCapture:
         if self._task is not None:
             self._task.cancel()
             self._task = None
+        self._loop = None
         self._ctx = None
 
     # -- intake ----------------------------------------------------------
@@ -133,6 +141,35 @@ class ErrorCapture:
         if self._throttled():
             return
         self._queue.append(_event_from_record(record))
+        if record.levelno >= logging.ERROR:
+            self._kick_soon()
+
+    def _kick_soon(self) -> None:
+        """ERROR+ records flush after ~2s instead of waiting the 30s tick —
+        a crash-adjacent event must reach the sink before a machine restart
+        can eat it. Debounced (one pending kick), thread-safe (emit() can run
+        on any thread), and stands down while deliveries are failing so a
+        dead token doesn't turn every error into a POST storm."""
+        loop = self._loop
+        if loop is None or loop.is_closed() or self._kick_pending:
+            return
+        self._kick_pending = True
+
+        def _schedule() -> None:
+            async def _fast_flush() -> None:
+                try:
+                    await asyncio.sleep(_FAST_FLUSH_DELAY_S)
+                    if time.monotonic() - self._last_failure >= _FAILURE_BACKOFF_S:
+                        await self.flush()
+                finally:
+                    self._kick_pending = False
+
+            loop.create_task(_fast_flush())
+
+        try:
+            loop.call_soon_threadsafe(_schedule)
+        except RuntimeError:  # loop shut down between check and call
+            self._kick_pending = False
 
     def _throttled(self) -> bool:
         minute = int(time.monotonic() // 60)
@@ -149,19 +186,33 @@ class ErrorCapture:
             await self.flush()
 
     async def flush(self) -> None:
-        """Send one batch. Never raises; on failure the batch is dropped
-        (error telemetry is not worth a retry queue)."""
+        """Send one batch. Never raises. On delivery failure the batch is
+        REQUEUED at the head (bounded by the deque) and retried on a later
+        tick — the errors most worth keeping are the ones that explain why
+        delivery itself is failing (dead gateway token, network outage), so
+        dropping them hid exactly the incidents the sink exists for.
+        Unconfigured (OSS, no control plane) still drains to nothing."""
         if not self._queue or self._ctx is None:
+            return
+        if client.get_config(self._ctx) is None:
+            self._queue.clear()  # nowhere to deliver, ever — don't hoard
             return
         events: list[dict[str, Any]] = []
         while self._queue and len(events) < _BATCH_MAX:
             events.append(self._queue.popleft())
+        result = None
         try:
-            await asyncio.wait_for(
+            result = await asyncio.wait_for(
                 client.report_error(self._ctx, events), _SEND_TIMEOUT_S
             )
         except Exception:  # noqa: BLE001 — best-effort by contract
-            log.debug("error batch dropped (%d events)", len(events))
+            result = None
+        if result is None:  # report_error never raises; None = not delivered
+            self._last_failure = time.monotonic()
+            self._queue.extendleft(reversed(events))
+            log.debug("error batch delivery failed — requeued (%d events)", len(events))
+        else:
+            self._last_failure = 0.0
 
 
 capture = ErrorCapture()
