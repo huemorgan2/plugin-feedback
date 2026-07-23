@@ -46,7 +46,7 @@ class FeedbackPlugin(LunaPlugin):
         shown_name="Feedback",
         icon="message-square",
         image="assets/icon.png",
-        version="0.3.1",
+        version="0.2.1",
         description=(
             "Feedback tickets to the Luna team, with threaded replies — plus "
             "silent error capture to the control plane."

@@ -79,6 +79,33 @@ def test_event_with_exc_info_is_plugin_exception_and_scrubbed():
     assert "[redacted]" in event["context"]["stack"]
 
 
+def test_message_ansi_and_timestamp_stripped():
+    cap = make_capture()
+    raw = "\x1b[2m2026-07-23T04:46:37.755211Z\x1b[0m [\x1b[31m\x1b[1merror    \x1b[0m] \x1b[1mchat.stream_failed\x1b[0m"
+    cap.enqueue_record(_record(level=logging.ERROR, msg=raw))
+    msg = cap._queue[0]["message"]
+    assert "\x1b" not in msg
+    assert "2026-07-23" not in msg
+    assert msg.startswith("[error")
+
+
+def test_long_message_keeps_head_and_tail():
+    cap = make_capture()
+    raw = "Traceback (most recent call last):\n" + ("  File frame\n" * 200) + "ValueError: Unknown provider: moonshot"
+    cap.enqueue_record(_record(level=logging.ERROR, msg=raw))
+    msg = cap._queue[0]["message"]
+    assert len(msg) <= errors._MAX_MESSAGE_CHARS
+    assert msg.startswith("Traceback")
+    assert msg.endswith("ValueError: Unknown provider: moonshot")
+
+
+def test_identical_errors_produce_identical_messages():
+    cap = make_capture()
+    for ts in ("2026-07-23T04:46:32.490161Z", "2026-07-23T05:01:07.000001Z"):
+        cap.enqueue_record(_record(level=logging.WARNING, msg=f"\x1b[2m{ts}\x1b[0m warn memory.embed_timeout"))
+    assert cap._queue[0]["message"] == cap._queue[1]["message"]
+
+
 # -- bounds --------------------------------------------------------------
 
 def test_queue_drops_oldest_when_full(monkeypatch):
