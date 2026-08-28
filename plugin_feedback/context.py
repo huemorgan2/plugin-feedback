@@ -92,6 +92,74 @@ async def build_context(ctx: Any, plugin_version: str) -> dict[str, Any]:
     return {k: v for k, v in out.items() if v}
 
 
+async def _latest_conversation_id(ctx: Any) -> str | None:
+    """Most recently active conversation — the fallback when the pane was
+    opened without a deep-link. None when unavailable."""
+    factory = getattr(ctx, "db_session_factory", None)
+    if factory is None:
+        return None
+    try:
+        from sqlalchemy import text as sql_text
+
+        async with factory() as s:
+            row = (
+                await s.execute(
+                    sql_text(
+                        "SELECT id FROM conversations "
+                        "ORDER BY COALESCE(updated_at, created_at) DESC LIMIT 1"
+                    )
+                )
+            ).first()
+        return str(row[0]) if row else None
+    except Exception:  # noqa: BLE001 — context is enrichment, never a blocker
+        return None
+
+
+async def transcript_block(
+    ctx: Any,
+    conversation_id: str | None,
+    *,
+    limit: int = 30,
+    per_message_chars: int = 2000,
+    max_chars: int = 24_000,
+) -> str:
+    """Rendered transcript of the last `limit` user/assistant messages of the
+    given conversation (latest conversation when None), oldest first, each
+    message clamped, whole block capped keeping the NEWEST messages, scrubbed.
+    Empty string when anything is unavailable — a ticket without context still
+    beats no ticket."""
+    reader = getattr(ctx, "conversations", None)
+    if reader is None:
+        return ""
+    conv_id: Any = conversation_id or await _latest_conversation_id(ctx)
+    if not conv_id:
+        return ""
+    try:
+        import uuid as _uuid
+
+        conv_id = _uuid.UUID(str(conv_id))
+    except Exception:  # noqa: BLE001 — reader may take plain strings
+        pass
+    try:
+        messages = await reader.messages(
+            [conv_id], roles=("user", "assistant"), order="desc", limit=limit
+        )
+    except Exception:  # noqa: BLE001
+        return ""
+    lines: list[str] = []
+    total = 0
+    for m in messages:  # newest first
+        content = scrub((m.content or "").strip())
+        if len(content) > per_message_chars:
+            content = content[:per_message_chars] + "…"
+        line = f"[{m.role}]\n{content}"
+        if total + len(line) > max_chars:
+            break
+        lines.append(line)
+        total += len(line) + 2
+    return "\n\n".join(reversed(lines))
+
+
 async def conversation_excerpt(ctx: Any, *, limit: int = 20) -> list[dict[str, Any]]:
     """The last `limit` user/assistant messages of the current conversation,
     oldest first, scrubbed and truncated. Empty outside a turn."""

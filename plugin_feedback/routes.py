@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
 
 from . import client
-from .context import build_context, scrub
+from .context import build_context, scrub, transcript_block
 
 _UI_DIR = Path(__file__).parent / "ui"
 
@@ -28,6 +28,10 @@ class NewTicketBody(BaseModel):
     body: str
     category: str = "other"
     severity: str = "normal"
+    # 011: attach the conversation transcript to the ticket body. Null
+    # conversation_id with include_context → the most recent conversation.
+    conversation_id: str | None = None
+    include_context: bool = False
 
 
 class ReplyBody(BaseModel):
@@ -81,12 +85,22 @@ def register_routes(app, ctx):
 
     @router.post("/tickets", status_code=201)
     async def create_ticket(payload: NewTicketBody, user=Depends(get_current_user)):
+        body_text = scrub(payload.body.strip())
+        if payload.include_context:
+            # Best-effort by design: a context failure must never block the
+            # ticket. transcript_block scrubs and clamps internally.
+            transcript = await transcript_block(ctx, payload.conversation_id)
+            if transcript:
+                body_text += (
+                    "\n\n--- conversation context (last 30 messages) ---\n"
+                    + transcript
+                )
         body = {
             "origin": "user",  # the pane form is always the owner's own words
             "category": payload.category,
             "severity": payload.severity,
             "title": scrub(payload.title.strip())[:200],
-            "body": scrub(payload.body.strip()),
+            "body": body_text,
             "context": await build_context(ctx, version),
         }
         try:

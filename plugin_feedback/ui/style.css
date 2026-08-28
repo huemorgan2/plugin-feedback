@@ -145,3 +145,11 @@ input[type="text"]:focus, textarea:focus { outline: none; border-color: var(--vi
 .msg.mine { align-self: flex-end; background: var(--panel-2); }
 .msg.admin { border-color: var(--violet); }
 .msg.admin .who { color: var(--violet-soft); }
+
+/* 011: context-attach checkbox in the compose form */
+.ctx-check {
+  display: flex; align-items: center; gap: 8px;
+  margin: 10px 0 12px; font-size: 13px; color: var(--dim);
+  cursor: pointer; user-select: none;
+}
+.ctx-check input { accent-color: var(--violet); }

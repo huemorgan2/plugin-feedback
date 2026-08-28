@@ -1,6 +1,6 @@
 name = "plugin-feedback"
 shown_name = "Feedback"
-version = "0.4.0"
+version = "0.5.0"
 description = "Feedback tickets to the Luna team, with threaded replies — plus silent error capture to the control plane."
 entry = "plugin_feedback"
 sdk_version = "0"

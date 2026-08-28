@@ -179,6 +179,7 @@ function openCompose(params) {
   const verdict = ['good', 'mediocre', 'bad'].includes(raw) ? raw : null;
   composeConversationId = params.get('conversation') || null;
   setError('new-error', null);
+  el('ctx-attach').checked = true; // 011: default ON every compose open
   show('new-view');
   if (!verdict) return;
   setCategory(verdict === 'good' ? 'praise' : 'frustration');
@@ -207,6 +208,8 @@ el('new-form').addEventListener('submit', async (e) => {
       title: el('new-title').value.trim(),
       body: el('new-body').value.trim(),
       category,
+      conversation_id: composeConversationId,
+      include_context: el('ctx-attach').checked,
     });
     el('new-title').value = '';
     el('new-body').value = '';
@@ -240,6 +243,7 @@ el('reply-form').addEventListener('submit', async (e) => {
 el('new-btn').addEventListener('click', () => {
   composeConversationId = null;
   setError('new-error', null);
+  el('ctx-attach').checked = true; // 011: default ON every compose open
   show('new-view');
 });
 document.querySelectorAll('[data-back]').forEach((b) =>
