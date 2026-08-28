@@ -156,12 +156,45 @@ async function openTicket(id) {
 
 // ---- new ticket view ----
 let category = 'other';
+// 011: conversation the compose deep-link came from (used by context attach).
+let composeConversationId = null;
+
+function setCategory(cat) {
+  category = CATEGORY_LABEL[cat] ? cat : 'other';
+  document.querySelectorAll('.chip').forEach((c) =>
+    c.classList.toggle('active', c.dataset.cat === category));
+}
 
 el('category-chips').addEventListener('click', (e) => {
   const chip = e.target.closest('.chip');
   if (!chip) return;
-  category = chip.dataset.cat;
-  document.querySelectorAll('.chip').forEach((c) => c.classList.toggle('active', c === chip));
+  setCategory(chip.dataset.cat);
+});
+
+// 011: chat-ui's agent-behaviour banner deep-links here. The Shell delivers a
+// 'navigate' plugin event whose target looks like
+// "compose?verdict=<good|mediocre|bad>&conversation=<id>".
+function openCompose(params) {
+  const raw = params.get('verdict');
+  const verdict = ['good', 'mediocre', 'bad'].includes(raw) ? raw : null;
+  composeConversationId = params.get('conversation') || null;
+  setError('new-error', null);
+  show('new-view');
+  if (!verdict) return;
+  setCategory(verdict === 'good' ? 'praise' : 'frustration');
+  el('new-title').value = `Agent behaviour: ${verdict}`;
+  const body = el('new-body');
+  body.value = `The agent is doing a ${verdict} job.\n`;
+  body.focus();
+  body.setSelectionRange(body.value.length, body.value.length);
+}
+
+window.addEventListener('message', (e) => {
+  const d = e.data;
+  if (!d || d.type !== 'luna-plugin-event' || d.event !== 'navigate') return;
+  const target = typeof (d.payload && d.payload.target) === 'string' ? d.payload.target : '';
+  if (!target.startsWith('compose')) return;
+  openCompose(new URLSearchParams(target.split('?')[1] || ''));
 });
 
 el('new-form').addEventListener('submit', async (e) => {
@@ -177,6 +210,8 @@ el('new-form').addEventListener('submit', async (e) => {
     });
     el('new-title').value = '';
     el('new-body').value = '';
+    composeConversationId = null;
+    setCategory('other');
     show('list-view');
     loadList();
   } catch (err) {
@@ -202,7 +237,11 @@ el('reply-form').addEventListener('submit', async (e) => {
   }
 });
 
-el('new-btn').addEventListener('click', () => { setError('new-error', null); show('new-view'); });
+el('new-btn').addEventListener('click', () => {
+  composeConversationId = null;
+  setError('new-error', null);
+  show('new-view');
+});
 document.querySelectorAll('[data-back]').forEach((b) =>
   b.addEventListener('click', () => { show('list-view'); loadList(); }));
 
@@ -218,3 +257,8 @@ try {
 // ---- boot ----
 try { window.parent?.postMessage({ type: 'luna-ui-ready' }, '*'); } catch {}
 getToken().then(loadList);
+// 011: direct-URL fallback for the compose deep-link (?compose=1&verdict=…).
+try {
+  const qs = new URLSearchParams(location.search);
+  if (qs.get('compose')) openCompose(qs);
+} catch {}
