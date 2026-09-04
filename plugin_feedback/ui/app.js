@@ -198,7 +198,7 @@ function openCompose(params) {
   composeConversationId = params.get('conversation') || null;
   setError('new-error', null);
   el('ctx-attach').checked = true; // 011: default ON every compose open
-  el('ctx-copy-context').checked = false; // full agent context is opt-in
+  el('ctx-copy-context').checked = true; // default ON every compose open
   show('new-view');
   if (!verdict) return;
   setCategory(verdict === 'good' ? 'praise' : 'frustration');
@@ -268,7 +268,7 @@ el('new-btn').addEventListener('click', () => {
   composeConversationId = null;
   setError('new-error', null);
   el('ctx-attach').checked = true; // 011: default ON every compose open
-  el('ctx-copy-context').checked = false; // full agent context is opt-in
+  el('ctx-copy-context').checked = true; // default ON every compose open
   show('new-view');
 });
 document.querySelectorAll('[data-back]').forEach((b) =>
