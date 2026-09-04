@@ -53,6 +53,24 @@ async function api(method, path, body) {
   return res.json();
 }
 
+// Fetch the full agent context (system prompt + tool schemas + history) for a
+// conversation — the same text the chat UI's "Copy agent context" produces.
+// Best-effort: returns '' if unavailable so it never blocks a ticket.
+async function fetchAgentContext(convId) {
+  if (!convId) return '';
+  try {
+    const token = await getToken();
+    const res = await fetch(`/api/conversations/${encodeURIComponent(convId)}/context/text`, {
+      headers: { Authorization: `Bearer ${token || ''}` },
+    });
+    if (!res.ok) return '';
+    const j = await res.json();
+    return typeof j.text === 'string' ? j.text : '';
+  } catch {
+    return '';
+  }
+}
+
 // ---- helpers ----
 const el = (id) => document.getElementById(id);
 function esc(s) {
@@ -180,6 +198,7 @@ function openCompose(params) {
   composeConversationId = params.get('conversation') || null;
   setError('new-error', null);
   el('ctx-attach').checked = true; // 011: default ON every compose open
+  el('ctx-copy-context').checked = false; // full agent context is opt-in
   show('new-view');
   if (!verdict) return;
   setCategory(verdict === 'good' ? 'praise' : 'frustration');
@@ -204,12 +223,17 @@ el('new-form').addEventListener('submit', async (e) => {
   const submit = el('new-submit');
   submit.disabled = true;
   try {
+    let agentContext = '';
+    if (el('ctx-copy-context').checked) {
+      agentContext = await fetchAgentContext(composeConversationId);
+    }
     await api('POST', '/tickets', {
       title: el('new-title').value.trim(),
       body: el('new-body').value.trim(),
       category,
       conversation_id: composeConversationId,
       include_context: el('ctx-attach').checked,
+      agent_context: agentContext || null,
     });
     el('new-title').value = '';
     el('new-body').value = '';
@@ -244,6 +268,7 @@ el('new-btn').addEventListener('click', () => {
   composeConversationId = null;
   setError('new-error', null);
   el('ctx-attach').checked = true; // 011: default ON every compose open
+  el('ctx-copy-context').checked = false; // full agent context is opt-in
   show('new-view');
 });
 document.querySelectorAll('[data-back]').forEach((b) =>

@@ -32,6 +32,10 @@ class NewTicketBody(BaseModel):
     # conversation_id with include_context → the most recent conversation.
     conversation_id: str | None = None
     include_context: bool = False
+    # Full agent context (system prompt + tool schemas + history), captured
+    # client-side from /api/conversations/{id}/context/text. Scrubbed and
+    # clamped server-side before it is appended to the ticket body.
+    agent_context: str | None = None
 
 
 class ReplyBody(BaseModel):
@@ -94,6 +98,15 @@ def register_routes(app, ctx):
                 body_text += (
                     "\n\n--- conversation context (last 30 messages) ---\n"
                     + transcript
+                )
+        if payload.agent_context:
+            # Full agent context is large; scrub credentials and clamp so a
+            # ticket body never balloons past what the store/UI can show.
+            agent_ctx = scrub(payload.agent_context.strip())[:200_000]
+            if agent_ctx:
+                body_text += (
+                    "\n\n--- full agent context (system prompt + tools) ---\n"
+                    + agent_ctx
                 )
         body = {
             "origin": "user",  # the pane form is always the owner's own words
