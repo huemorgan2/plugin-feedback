@@ -9,6 +9,9 @@ the `feedback-tickets` skill.
 
 from __future__ import annotations
 
+import hashlib
+import time
+import uuid
 from typing import Any
 
 from luna_sdk import PluginContext, ToolDef
@@ -30,6 +33,40 @@ SEVERITIES = ("low", "normal", "high")
 # with values user|agent (plan 046).
 _ORIGIN = {"owner": "user", "agent": "agent"}
 
+# 002 (luna plans/103 phase 6): ticket idempotency. The 08-31 corpus shows a
+# five-ticket cancel cascade for one mis-send and corrections spawning new
+# tickets — create_ticket had no dedupe at all. Every ticket now carries a
+# deterministic client_ref (the service dedupes on it server-side once its
+# plans/103 sibling ships), and an in-process guard (scoped to this plugin
+# load) refuses re-sending an identical title+body within 10 minutes.
+_RECENT_TTL_S = 600.0
+
+
+def _client_ref(ctx: Any, title: str, body: str) -> str:
+    host = ""
+    get_env = getattr(ctx, "get_env", None)
+    if callable(get_env):
+        try:
+            host = (get_env("LUNA_HOST_NAME") or "").strip()
+        except Exception:  # noqa: BLE001 — identity is best-effort
+            host = ""
+    seed = hashlib.sha256(f"{host}|{title}|{body}".encode()).hexdigest()
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"luna://feedback/ticket/{seed}"))
+
+
+def _recent_duplicate(
+    recent: dict[str, tuple[float, str | None]], client_ref: str
+) -> str | None:
+    """Ticket id (or the ref itself) if this exact ticket went out < TTL ago."""
+    now = time.monotonic()
+    for ref, (ts, _tid) in list(recent.items()):
+        if now - ts > _RECENT_TTL_S:
+            recent.pop(ref, None)
+    hit = recent.get(client_ref)
+    if hit is None:
+        return None
+    return hit[1] or client_ref
+
 
 def _error(exc: Exception) -> dict[str, Any]:
     if isinstance(exc, client.NotConnected):
@@ -40,6 +77,8 @@ def _error(exc: Exception) -> dict[str, Any]:
 
 
 def register_tools(ctx: PluginContext, plugin_version: str) -> None:
+    recent_sends: dict[str, tuple[float, str | None]] = {}
+
     async def _emit_updated(ticket_id: str | None) -> None:
         try:
             await ctx.events.emit("feedback.updated", {"ticket_id": ticket_id})
@@ -78,10 +117,25 @@ def register_tools(ctx: PluginContext, plugin_version: str) -> None:
             payload["technical"] = {
                 str(k): scrub(str(v)) for k, v in technical.items()
             }
+        client_ref = _client_ref(ctx, payload["title"], payload["body"])
+        payload["client_ref"] = client_ref
+        duplicate_of = _recent_duplicate(recent_sends, client_ref)
+        if duplicate_of is not None:
+            return {
+                "sent": False,
+                "duplicate_of": duplicate_of,
+                "note": (
+                    "An identical ticket (same title and body) was sent less "
+                    "than 10 minutes ago — not re-sent. To correct or extend "
+                    "it, reply on that ticket with feedback_ticket_reply "
+                    "instead of creating another one."
+                ),
+            }
         try:
             created = await client.create_ticket(ctx, payload)
         except Exception as exc:  # noqa: BLE001 — degrade to a readable error
             return _error(exc)
+        recent_sends[client_ref] = (time.monotonic(), created.get("id"))
         await _emit_updated(created.get("id"))
         return {
             "sent": True,
