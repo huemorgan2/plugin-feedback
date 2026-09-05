@@ -105,10 +105,22 @@ async def list_tickets(ctx: Any, *, limit: int = 50, offset: int = 0) -> dict[st
     )
 
 
-async def get_ticket(ctx: Any, ticket_id: str, *, mark_read: bool = True) -> dict[str, Any]:
+async def get_ticket(
+    ctx: Any,
+    ticket_id: str,
+    *,
+    mark_read: bool = True,
+    include_attachments: bool = False,
+) -> dict[str, Any]:
+    params: dict[str, Any] = {}
+    if mark_read:
+        params["mark_read"] = 1
+    if include_attachments:
+        # 004/079: without this, attachment strings >4k in message meta come
+        # back elided as {chars, elided, note} — token safety for agent reads.
+        params["include_attachments"] = 1
     return await _request(
-        ctx, "GET", f"/tickets/{ticket_id}",
-        params={"mark_read": 1} if mark_read else None,
+        ctx, "GET", f"/tickets/{ticket_id}", params=params or None
     )
 
 

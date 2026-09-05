@@ -107,7 +107,9 @@ async def _post_ticket(reader, payload, monkeypatch):
     return captured
 
 
-async def test_create_ticket_appends_transcript(monkeypatch):
+async def test_create_ticket_sends_transcript_as_field(monkeypatch):
+    # 004: the transcript rides as its own payload field — the body stays the
+    # owner's actual words.
     reader = _Reader([_msg("user", "it broke again")])
     captured = await _post_ticket(
         reader,
@@ -120,9 +122,25 @@ async def test_create_ticket_appends_transcript(monkeypatch):
         },
         monkeypatch,
     )
-    assert "--- conversation context (last 30 messages) ---" in captured["body"]
-    assert "[user]\nit broke again" in captured["body"]
-    assert captured["body"].startswith("The agent is doing a bad job.")
+    assert captured["body"] == "The agent is doing a bad job."
+    assert "[user]\nit broke again" in captured["transcript"]
+
+
+async def test_create_ticket_sends_agent_context_as_field(monkeypatch):
+    reader = _Reader([_msg("user", "it broke again")])
+    captured = await _post_ticket(
+        reader,
+        {
+            "title": "t",
+            "body": "short note",
+            "include_context": False,
+            "agent_context": "SYSTEM PROMPT\n" + "x" * 300_000,
+        },
+        monkeypatch,
+    )
+    assert captured["body"] == "short note"
+    assert captured["agent_context"].startswith("SYSTEM PROMPT")
+    assert len(captured["agent_context"]) == 200_000  # client-side clamp
 
 
 async def test_create_ticket_without_context_untouched(monkeypatch):
@@ -133,7 +151,8 @@ async def test_create_ticket_without_context_untouched(monkeypatch):
         monkeypatch,
     )
     assert captured["body"] == "plain body"
-    assert "conversation context" not in captured["body"]
+    assert "transcript" not in captured
+    assert "agent_context" not in captured
 
 
 async def test_create_ticket_context_failure_still_files(monkeypatch):

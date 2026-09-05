@@ -153,9 +153,14 @@ def register_tools(ctx: PluginContext, plugin_version: str) -> None:
         except Exception as exc:  # noqa: BLE001
             return _error(exc)
 
-    async def _get(ticket_id: str) -> dict[str, Any]:
+    async def _get(
+        ticket_id: str, include_attachments: bool = False
+    ) -> dict[str, Any]:
         try:
-            result = await client.get_ticket(ctx, ticket_id, mark_read=True)
+            result = await client.get_ticket(
+                ctx, ticket_id, mark_read=True,
+                include_attachments=include_attachments,
+            )
         except Exception as exc:  # noqa: BLE001
             return _error(exc)
         await _emit_updated(ticket_id)
@@ -255,10 +260,22 @@ def register_tools(ctx: PluginContext, plugin_version: str) -> None:
         (
             ToolDef(
                 name="feedback_ticket_get",
-                description="Read one feedback ticket's full thread (marks the team's replies as read).",
+                description=(
+                    "Read one feedback ticket's full thread (marks the team's "
+                    "replies as read). Large attachments (conversation "
+                    "history, agent context) come back as {chars, elided} "
+                    "stubs; pass include_attachments=true only when you "
+                    "actually need their full text."
+                ),
                 parameters={
                     "type": "object",
-                    "properties": {"ticket_id": {"type": "string"}},
+                    "properties": {
+                        "ticket_id": {"type": "string"},
+                        "include_attachments": {
+                            "type": "boolean", "default": False,
+                            "description": "Return full attachment text instead of {chars, elided} stubs. Large — only when needed.",
+                        },
+                    },
                     "required": ["ticket_id"],
                 },
                 policy="auto_approve", risk_level="low",
@@ -352,7 +369,10 @@ def register_tools(ctx: PluginContext, plugin_version: str) -> None:
                     "read it), closed.\n"
                     "- feedback_ticket_get returns the full thread and marks the "
                     "team's replies as read. Relay the reply to the owner in "
-                    "plain words — never paste ticket JSON.\n"
+                    "plain words — never paste ticket JSON. Attached "
+                    "conversation history / agent context arrive as {chars, "
+                    "elided} stubs; pass include_attachments=true only when "
+                    "you truly need the full text (it is large).\n"
                     "- feedback_ticket_reply answers on the thread; a reply reopens "
                     "a closed or answered ticket. Use written_by='owner' "
                     "when relaying the owner's words.\n"

@@ -89,33 +89,29 @@ def register_routes(app, ctx):
 
     @router.post("/tickets", status_code=201)
     async def create_ticket(payload: NewTicketBody, user=Depends(get_current_user)):
-        body_text = scrub(payload.body.strip())
-        if payload.include_context:
-            # Best-effort by design: a context failure must never block the
-            # ticket. transcript_block scrubs and clamps internally.
-            transcript = await transcript_block(ctx, payload.conversation_id)
-            if transcript:
-                body_text += (
-                    "\n\n--- conversation context (last 30 messages) ---\n"
-                    + transcript
-                )
-        if payload.agent_context:
-            # Full agent context is large; scrub credentials and clamp so a
-            # ticket body never balloons past what the store/UI can show.
-            agent_ctx = scrub(payload.agent_context.strip())[:200_000]
-            if agent_ctx:
-                body_text += (
-                    "\n\n--- full agent context (system prompt + tools) ---\n"
-                    + agent_ctx
-                )
+        # 004: transcript / agent context ride as attachment FIELDS (service
+        # 079 stores them in the opening message's meta) — never concatenated
+        # into the body, which stays the owner's actual words.
         body = {
             "origin": "user",  # the pane form is always the owner's own words
             "category": payload.category,
             "severity": payload.severity,
             "title": scrub(payload.title.strip())[:200],
-            "body": body_text,
+            "body": scrub(payload.body.strip()),
             "context": await build_context(ctx, version),
         }
+        if payload.include_context:
+            # Best-effort by design: a context failure must never block the
+            # ticket. transcript_block scrubs and clamps internally.
+            transcript = await transcript_block(ctx, payload.conversation_id)
+            if transcript:
+                body["transcript"] = transcript
+        if payload.agent_context:
+            # Full agent context is large; scrub credentials and clamp (the
+            # service clamps again — it does not trust clients).
+            agent_ctx = scrub(payload.agent_context.strip())[:200_000]
+            if agent_ctx:
+                body["agent_context"] = agent_ctx
         try:
             created = await client.create_ticket(ctx, body)
         except Exception as exc:  # noqa: BLE001
@@ -127,9 +123,12 @@ def register_routes(app, ctx):
     async def get_ticket(ticket_id: str, user=Depends(get_current_user)):
         # No feedback.updated emit here: reads are not updates, and the pane
         # refetches on that event — emitting from its own GET looped forever
-        # (plan 003).
+        # (plan 003). include_attachments: the browser has no token budget,
+        # and the pane shows attachments collapsed (004).
         try:
-            result = await client.get_ticket(ctx, ticket_id, mark_read=True)
+            result = await client.get_ticket(
+                ctx, ticket_id, mark_read=True, include_attachments=True
+            )
         except Exception as exc:  # noqa: BLE001
             _raise_for(exc)
         return result

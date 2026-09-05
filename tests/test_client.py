@@ -99,6 +99,28 @@ async def test_request_error_maps_detail(monkeypatch):
     assert err.value.detail == "title required"
 
 
+async def test_get_ticket_query_params(monkeypatch):
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["query"] = dict(request.url.params)
+        return httpx.Response(200, json={"ticket": {"id": "t-1"}, "messages": []})
+
+    await _with_transport(
+        monkeypatch, handler,
+        lambda: client.get_ticket(SimpleNamespace(), "t-1"),
+    )
+    assert seen["query"] == {"mark_read": "1"}
+
+    await _with_transport(
+        monkeypatch, handler,
+        lambda: client.get_ticket(
+            SimpleNamespace(), "t-1", mark_read=False, include_attachments=True
+        ),
+    )
+    assert seen["query"] == {"include_attachments": "1"}
+
+
 async def test_updates_path(monkeypatch):
     def handler(request):
         assert request.url.path == "/api/agent/feedback/updates"

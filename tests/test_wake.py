@@ -201,7 +201,7 @@ async def test_get_ticket_does_not_emit(monkeypatch):
     app = FastAPI()
     routes.register_routes(app, ctx)
 
-    async def fake_get(route_ctx, ticket_id, *, mark_read=True):
+    async def fake_get(route_ctx, ticket_id, *, mark_read=True, include_attachments=False):
         return {"ticket": {"id": ticket_id}, "messages": []}
 
     monkeypatch.setattr(fb_client, "get_ticket", fake_get)

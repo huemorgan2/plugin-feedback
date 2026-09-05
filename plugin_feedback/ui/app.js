@@ -85,6 +85,10 @@ function ago(iso) {
   if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
   return `${Math.floor(s / 86400)}d ago`;
 }
+function abs(iso) {
+  if (!iso) return '';
+  return new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+}
 const STATUS_LABEL = { open: 'Waiting for the team', answered: 'Team replied', closed: 'Closed' };
 const CATEGORY_LABEL = { cost: 'Pricing', bug: 'Something broke', frustration: 'Frustration', feature: 'Idea', praise: 'Praise', other: 'General' };
 const WHO_LABEL = { user: 'You', agent: 'Your Luna', admin: 'Luna team' };
@@ -131,7 +135,7 @@ async function loadList() {
       <span class="title">${esc(t.title)}</span>
       ${t.unread ? '<span class="pill unread">new reply</span>'
                  : `<span class="pill ${esc(t.status)}">${esc(STATUS_LABEL[t.status] || t.status)}</span>`}
-      <span class="meta">${esc(ago(t.updated_at || t.created_at))}</span>`;
+      <span class="meta">${esc(ago(t.last_activity_at || t.updated_at || t.created_at))}</span>`;
     btn.addEventListener('click', () => openTicket(t.id));
     list.appendChild(btn);
   }
@@ -163,24 +167,55 @@ async function openTicket(id, { silent = false } = {}) {
   ticketBusy = false;
   if (currentTicket !== id) return; // user navigated away mid-fetch
   const t = data.ticket || {};
+  const messages = data.messages || [];
   el('detail-eyebrow').textContent = (CATEGORY_LABEL[t.category] || 'TICKET').toUpperCase();
   el('detail-title').textContent = t.title || '';
-  el('detail-support').textContent = `Opened ${ago(t.created_at)}${t.origin === 'agent' ? ' · sent by your Luna' : ''}`;
+  // 004: opened + last reply — never "last opened", reads are not changes.
+  const lastReply = messages.length > 1 ? messages[messages.length - 1].created_at : null;
+  el('detail-support').textContent =
+    `Opened ${ago(t.created_at)}` +
+    (lastReply ? ` · last reply ${ago(lastReply)}` : '') +
+    (t.origin === 'agent' ? ' · sent by your Luna' : '');
   const pill = el('detail-status');
   pill.textContent = STATUS_LABEL[t.status] || t.status || '';
   pill.className = `pill ${t.status || ''}`;
   const thread = el('thread');
   thread.innerHTML = '';
-  for (const m of data.messages || []) {
+  for (const m of messages) {
     const div = document.createElement('div');
-    const mine = m.author !== 'admin';
     div.className = `msg ${m.author === 'admin' ? 'admin' : 'mine'}`;
     div.innerHTML = `
       <div class="who">${esc(WHO_LABEL[m.author] || m.author)}</div>
       <div class="body">${esc(m.body)}</div>
-      <div class="when">${esc(ago(m.created_at))}</div>`;
+      ${attachmentsHtml(m.meta)}
+      <div class="when">${esc(ago(m.created_at))} · ${esc(abs(m.created_at))}</div>`;
     thread.appendChild(div);
   }
+}
+
+// 004: transcript / agent context / excerpt are attachments in message meta —
+// side notes, collapsed by default, never part of the message body.
+function attachmentsHtml(meta) {
+  if (!meta) return '';
+  const parts = [];
+  const block = (label, text) => {
+    if (typeof text === 'string' && text) {
+      parts.push(
+        `<details class="attachment"><summary>${esc(label)} ` +
+        `(${text.length.toLocaleString()} chars)</summary>` +
+        `<pre>${esc(text)}</pre></details>`);
+    } else if (text && typeof text === 'object' && text.elided) {
+      parts.push(`<div class="attachment support">${esc(label)} attached (${Number(text.chars).toLocaleString()} chars)</div>`);
+    }
+  };
+  block('Conversation history', meta.transcript);
+  block('Agent context', meta.agent_context);
+  if (Array.isArray(meta.conversation_excerpt) && meta.conversation_excerpt.length) {
+    const lines = meta.conversation_excerpt
+      .map((c) => `[${c.role}] ${c.content}`).join('\n\n');
+    block(`Conversation excerpt · ${meta.conversation_excerpt.length} messages`, lines);
+  }
+  return parts.join('');
 }
 
 // ---- new ticket view ----

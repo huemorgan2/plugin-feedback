@@ -164,11 +164,20 @@ async def test_get_marks_read(monkeypatch):
     register_tools(ctx, "0.1.0")
     captured = {}
 
-    async def fake_get(c, ticket_id, *, mark_read):
-        captured.update(ticket_id=ticket_id, mark_read=mark_read)
+    async def fake_get(c, ticket_id, *, mark_read, include_attachments):
+        captured.update(
+            ticket_id=ticket_id,
+            mark_read=mark_read,
+            include_attachments=include_attachments,
+        )
         return {"ticket": {"id": ticket_id}, "messages": []}
 
     monkeypatch.setattr(fb_client, "get_ticket", fake_get)
     get = ctx.tool_registry.registered["feedback_ticket_get"]["handler"]
     await get(ticket_id="t-9")
-    assert captured == {"ticket_id": "t-9", "mark_read": True}
+    # include_attachments defaults False — agent reads get elided stubs.
+    assert captured == {
+        "ticket_id": "t-9", "mark_read": True, "include_attachments": False,
+    }
+    await get(ticket_id="t-9", include_attachments=True)
+    assert captured["include_attachments"] is True
