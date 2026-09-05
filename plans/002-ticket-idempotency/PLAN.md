@@ -1,6 +1,6 @@
-# Plan 002 — ticket idempotency (sibling of luna plans/103, phase 6)
+# Plan 002 — ticket idempotency (sibling of luna plans/106, phase 6)
 
-Date: 2026-09-05. Master plan: luna repo `plans/103-validated-bugfix-batch/PLAN.md`.
+Date: 2026-09-05. Master plan: luna repo `plans/106-validated-bugfix-batch/PLAN.md`.
 
 ## Evidence
 - 2026-08-31 tickets 011–015: a five-ticket cancel cascade trying to retract ONE
@@ -18,7 +18,7 @@ between 08-31 and HEAD), so the gap is current.
 ## Fix (client side — this repo)
 1. Deterministic `client_ref` on every ticket: uuid5 over
    `sha256(host|title|body)`. Sent in the create payload; the service's
-   plans/103 sibling adds a unique index + duplicate→200 semantics (luna-service
+   plans/106 sibling adds a unique index + duplicate→200 semantics (luna-service
    repo, its own plan).
 2. In-process guard: an identical title+body within 10 minutes returns
    `{sent: false, duplicate_of: <ticket id or ref>}` with a note steering the

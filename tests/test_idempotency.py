@@ -1,4 +1,4 @@
-"""Plan 002 — ticket idempotency (luna plans/103 phase 6).
+"""Plan 002 — ticket idempotency (luna plans/106 phase 6).
 
 Evidence: the 08-31 five-ticket cancel cascade and 09-01 correction tickets —
 create_ticket had no idempotency key and no dedupe anywhere.

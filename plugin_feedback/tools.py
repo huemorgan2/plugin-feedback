@@ -33,11 +33,11 @@ SEVERITIES = ("low", "normal", "high")
 # with values user|agent (plan 046).
 _ORIGIN = {"owner": "user", "agent": "agent"}
 
-# 002 (luna plans/103 phase 6): ticket idempotency. The 08-31 corpus shows a
+# 002 (luna plans/106 phase 6): ticket idempotency. The 08-31 corpus shows a
 # five-ticket cancel cascade for one mis-send and corrections spawning new
 # tickets — create_ticket had no dedupe at all. Every ticket now carries a
 # deterministic client_ref (the service dedupes on it server-side once its
-# plans/103 sibling ships), and an in-process guard (scoped to this plugin
+# plans/106 sibling ships), and an in-process guard (scoped to this plugin
 # load) refuses re-sending an identical title+body within 10 minutes.
 _RECENT_TTL_S = 600.0
 
