@@ -125,11 +125,13 @@ def register_routes(app, ctx):
 
     @router.get("/tickets/{ticket_id}")
     async def get_ticket(ticket_id: str, user=Depends(get_current_user)):
+        # No feedback.updated emit here: reads are not updates, and the pane
+        # refetches on that event — emitting from its own GET looped forever
+        # (plan 003).
         try:
             result = await client.get_ticket(ctx, ticket_id, mark_read=True)
         except Exception as exc:  # noqa: BLE001
             _raise_for(exc)
-        await _emit_updated(ticket_id)
         return result
 
     @router.post("/tickets/{ticket_id}/replies", status_code=201)

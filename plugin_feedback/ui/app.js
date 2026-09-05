@@ -138,19 +138,30 @@ async function loadList() {
 }
 
 // ---- detail view ----
-async function openTicket(id) {
+let ticketBusy = false;
+
+// silent=true (SSE refresh, reply submit) fetches first and swaps the DOM
+// after — no "Loading…" blank, so a live refresh never flickers (plan 003).
+async function openTicket(id, { silent = false } = {}) {
+  if (ticketBusy && silent) return; // drop piled-up refreshes, never user clicks
+  ticketBusy = true;
   currentTicket = id;
   show('detail-view');
   setError('reply-error', null);
-  el('thread').innerHTML = '<p class="support">Loading…</p>';
+  if (!silent) el('thread').innerHTML = '<p class="support">Loading…</p>';
   let data;
   try {
     data = await api('GET', `/tickets/${id}`);
   } catch (e) {
-    el('thread').innerHTML = '';
-    setError('reply-error', e.message);
+    if (!silent) {
+      el('thread').innerHTML = '';
+      setError('reply-error', e.message);
+    }
+    ticketBusy = false;
     return;
   }
+  ticketBusy = false;
+  if (currentTicket !== id) return; // user navigated away mid-fetch
   const t = data.ticket || {};
   el('detail-eyebrow').textContent = (CATEGORY_LABEL[t.category] || 'TICKET').toUpperCase();
   el('detail-title').textContent = t.title || '';
@@ -256,7 +267,7 @@ el('reply-form').addEventListener('submit', async (e) => {
   try {
     await api('POST', `/tickets/${currentTicket}/replies`, { body: el('reply-body').value.trim() });
     el('reply-body').value = '';
-    openTicket(currentTicket);
+    openTicket(currentTicket, { silent: true });
   } catch (err) {
     setError('reply-error', err.message);
   } finally {
@@ -279,7 +290,9 @@ try {
   const es = new EventSource('/api/events?topics=feedback.*');
   es.addEventListener('feedback.updated', () => {
     if (!el('list-view').classList.contains('hidden')) loadList();
-    else if (currentTicket && !el('detail-view').classList.contains('hidden')) openTicket(currentTicket);
+    else if (currentTicket && !el('detail-view').classList.contains('hidden')) {
+      openTicket(currentTicket, { silent: true });
+    }
   });
 } catch {}
 

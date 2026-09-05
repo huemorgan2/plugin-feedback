@@ -18,6 +18,7 @@ from luna_sdk import LunaPlugin, PluginContext, PluginManifest, SidebarSection
 from . import client
 from .errors import capture
 from .tools import register_tools
+from .wake import ReplyWakePoller
 
 log = logging.getLogger("plugin-feedback")
 
@@ -46,7 +47,7 @@ class FeedbackPlugin(LunaPlugin):
         shown_name="Feedback",
         icon="message-square",
         image="assets/icon.png",
-        version="0.7.0",
+        version="0.8.0",
         description=(
             "Feedback tickets to the Luna team, with threaded replies — plus "
             "silent error capture to the control plane."
@@ -65,6 +66,7 @@ class FeedbackPlugin(LunaPlugin):
         self._ctx: PluginContext | None = None
         self._unread_note: str | None = None
         self._next_poll: float = 0.0
+        self._poller: ReplyWakePoller | None = None
 
     async def on_load(self, ctx: PluginContext) -> None:
         self._ctx = ctx
@@ -72,13 +74,31 @@ class FeedbackPlugin(LunaPlugin):
         connected = client.get_config(ctx) is not None
         if connected:  # OSS installs get no handler — nothing to send to
             capture.attach(ctx)
+        # plan 003: wake the origin conversation when the team replies. Only
+        # on cores that can deliver a moment; old cores keep the prompt note.
+        if connected and getattr(ctx, "send_muted_message", None) is not None:
+            self._poller = ReplyWakePoller(ctx)
         log.info("plugin-feedback loaded (service connected=%s)", connected)
 
+    async def on_server_ready(self) -> None:
+        # Post-boot SERVING loop (core >=0.92.030) — boot-time tasks die with
+        # the bootstrap loop.
+        if self._poller is not None:
+            self._poller.ensure()
+
     async def on_unload(self) -> None:
+        if self._poller is not None:
+            self._poller.stop()
         capture.detach()
 
     async def prompt_sections(self) -> list[str]:
         sections = [_CAPABILITY_NOTE]
+        if self._poller is not None:
+            # Wake replaces the throttled note (017 rule: one delivery path).
+            # ensure() doubles as the lazy start on cores without
+            # on_server_ready.
+            self._poller.ensure()
+            return sections
         note = await self._check_unread()
         if note:
             sections.append(note)
